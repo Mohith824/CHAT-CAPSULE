@@ -1,0 +1,89 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Chat Capsule</title>
+  <link rel="stylesheet" href="popup.css" />
+</head>
+<body>
+  <div class="app-layout">
+    <!-- Header -->
+    <header class="app-header">
+      <div class="brand">
+        <div class="capsule-icon" aria-hidden="true">
+          <span class="pill-left"></span>
+          <span class="pill-right"></span>
+        </div>
+        <div class="brand-titles">
+          <h1 class="brand-name">Chat Capsule</h1>
+          <span class="brand-tag">Cross-AI Context Bridge</span>
+        </div>
+      </div>
+      <div class="tab-badge" id="tab-badge" title="Active browser tab">Detecting...</div>
+    </header>
+
+    <!-- Top Action -->
+    <section class="seal-section">
+      <button class="seal-btn" id="seal-chat-btn" title="Seal conversation in active tab">
+        <span class="btn-icon">💊</span>
+        <span class="btn-text">Seal current chat</span>
+      </button>
+    </section>
+
+    <!-- Controls: Mode & Filter -->
+    <section class="controls-bar">
+      <div class="mode-control">
+        <span class="control-label">Mode:</span>
+        <div class="mode-switch" role="group" aria-label="Prompt mode toggle">
+          <button class="mode-opt active" id="mode-compact-btn" data-mode="compact" type="button" aria-pressed="true">Compact</button>
+          <button class="mode-opt" id="mode-full-btn" data-mode="full" type="button" aria-pressed="false">Full</button>
+        </div>
+      </div>
+      <div class="search-wrap">
+        <input type="text" id="search-input" placeholder="Search capsules..." aria-label="Search capsules" autocomplete="off" />
+        <button id="clear-search-btn" class="clear-btn hidden" title="Clear search" aria-label="Clear search">&times;</button>
+      </div>
+    </section>
+
+    <!-- Capsule Library -->
+    <main class="library-container">
+      <div class="library-header">
+        <span class="section-title">Saved Capsules</span>
+        <span class="item-count" id="item-count">0 items</span>
+      </div>
+
+      <div class="capsule-feed" id="capsule-feed" role="list">
+        <!-- Rendered dynamically -->
+      </div>
+
+      <!-- Empty State -->
+      <div class="empty-state" id="empty-state">
+        <div class="empty-art">💊</div>
+        <h2>No capsules yet</h2>
+        <p>Open a chat on <strong>Claude</strong>, <strong>ChatGPT</strong>, or <strong>Gemini</strong> and click <em>"Seal current chat"</em> to create your first capsule.</p>
+      </div>
+    </main>
+
+    <!-- Footer -->
+    <footer class="app-footer">
+      <label for="import-file" class="import-btn" id="import-btn-label">
+        <svg class="import-svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+          <polyline points="7 10 12 15 17 10"></polyline>
+          <line x1="12" y1="15" x2="12" y2="3"></line>
+        </svg>
+        <span>Import .json</span>
+      </label>
+      <input type="file" id="import-file" accept=".json,application/json" class="file-hidden" />
+      <span class="storage-note">100% Local Storage</span>
+    </footer>
+
+    <!-- Feedback Toast -->
+    <div class="toast" id="toast-banner" role="status" aria-live="polite"></div>
+  </div>
+
+  <script src="capsule.js"></script>
+  <script src="popup.js"></script>
+</body>
+</html>
