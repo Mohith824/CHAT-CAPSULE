@@ -495,11 +495,19 @@
     }
 
     if (landed) {
-      showToast('Capsule placed in message box. Review and send when ready.', 'success', 4500);
+      showPill({
+        state: 'success',
+        title: 'Capsule loaded',
+        detail: 'Review it and press send.',
+      });
       return true;
     } else {
       await copyTextToClipboard(text);
-      showToast("Couldn't find the message box. Capsule copied, paste it in.", 'warning', 6000);
+      showPill({
+        state: 'info',
+        title: "Couldn't find the message box",
+        detail: 'Capsule copied, paste it in.',
+      });
       return false;
     }
   }
@@ -538,28 +546,40 @@
      ========================================================================== */
   async function sealCurrentChat() {
     const adapter = getCurrentAdapter();
+
+    // Step 1: Initial sealing pill state (halves slightly apart + "Sealing...")
+    showPill({
+      state: 'sealing',
+      title: 'Sealing...',
+    });
+
     const messages = collectMessages();
 
     if (messages.length === 0) {
-      showToast(
-        `No messages found in this chat yet. Please send a message or open an existing conversation.`,
-        'warning',
-        6000
-      );
+      showPill({
+        state: 'error',
+        title: "Couldn't read this chat",
+        detail: 'Selectors may need updating.',
+      });
       return null;
     }
 
     if (messages.length < 2) {
-      showToast(
-        `Found only 1 message on ${adapter.name}. A conversation needs at least 2 turns to seal a capsule.`,
-        'warning',
-        6000
-      );
+      showPill({
+        state: 'error',
+        title: "Couldn't read this chat",
+        detail: `Found only 1 message on ${adapter.name}.`,
+      });
       return null;
     }
 
     if (!window.CapsuleLib) {
-      throw new Error('CapsuleLib is not loaded.');
+      showPill({
+        state: 'error',
+        title: 'CapsuleLib not loaded',
+        detail: 'Please refresh the page.',
+      });
+      return null;
     }
 
     const capsule = window.CapsuleLib.build(messages, {
@@ -571,7 +591,11 @@
       await window.CapsuleLib.store.save(capsule);
     } catch (saveErr) {
       if (saveErr?.message?.includes('invalidated') || (typeof chrome !== 'undefined' && !chrome.runtime?.id)) {
-        showToast('Extension was reloaded. Please refresh this page (F5) to seal.', 'warning', 6000);
+        showPill({
+          state: 'error',
+          title: 'Extension reloaded',
+          detail: 'Please refresh this page (F5) to seal.',
+        });
         return null;
       }
       throw saveErr;
@@ -579,25 +603,30 @@
 
     const mode = await getPreferredMode();
     const prompt = window.CapsuleLib.toPrompt(capsule, mode);
-    await copyTextToClipboard(prompt);
+    const copied = await copyTextToClipboard(prompt);
 
     const tokens = window.CapsuleLib.approxTokens(prompt);
     const tokenDisplay = tokens >= 1000 ? `${(tokens / 1000).toFixed(1)}k` : `${tokens}`;
 
-    // Pop the cinematic on-screen seal animation!
-    playSealPopAnimation({
-      count: messages.length,
-      tokens: tokenDisplay,
-      source: adapter.name,
-      mode: mode,
-    });
+    // Brief transition delay (~320ms) so the "Sealing..." animation is perceived
+    await new Promise((r) => setTimeout(r, 320));
 
-    // Toast: "Capsule sealed. 24 messages, about 3.2k tokens."
-    showToast(
-      `Capsule sealed. ${messages.length} messages, about ${tokenDisplay} tokens.`,
-      'success',
-      5000
-    );
+    // Steps 2, 3 & 4: Halves slide together with tiny bounce, morph to checkmark,
+    // text changes to "Sealed", secondary stats line, "Copied" badge, and "Undo" button
+    showPill({
+      state: 'success',
+      title: 'Sealed',
+      detail: `${messages.length} messages · ~${tokenDisplay} tokens · ${mode === 'full' ? 'Full' : 'Compact'}`,
+      copied: !!copied,
+      onUndo: async () => {
+        await window.CapsuleLib.store.remove(capsule.id);
+        refreshRecentCapsules();
+        showPill({
+          state: 'info',
+          title: 'Removed',
+        });
+      },
+    });
 
     refreshRecentCapsules();
     return capsule;
@@ -607,7 +636,10 @@
     if (!window.CapsuleLib) return false;
     const capsule = await window.CapsuleLib.store.get(id);
     if (!capsule) {
-      showToast('Capsule not found in storage.', 'error', 4000);
+      showPill({
+        state: 'error',
+        title: 'Capsule not found in storage.',
+      });
       return false;
     }
 
@@ -953,390 +985,60 @@
         padding: 10px 0;
       }
 
-      /* Auto-dismissing Toasts container */
-      .cc-toast-box {
+      /* =========================================================
+         NON-BLOCKING DYNAMIC CAPSULE PILL NOTIFICATION
+         ========================================================= */
+      .cc-pill-host {
         position: fixed;
-        bottom: 86px;
-        right: 24px;
-        display: flex;
-        flex-direction: column;
-        gap: 6px;
+        top: 18px;
+        left: 50%;
+        transform: translateX(-50%);
         z-index: 2147483647;
         pointer-events: none;
-      }
-
-      .cc-toast-msg {
-        background: rgba(15, 23, 42, 0.96);
-        border: 1px solid rgba(255, 255, 255, 0.14);
-        color: #f8fafc;
-        border-radius: 8px;
-        padding: 9px 13px;
-        font-size: 12px;
-        line-height: 1.4;
-        box-shadow: 0 8px 24px rgba(0, 0, 0, 0.45);
-        max-width: 320px;
-        pointer-events: auto;
-        animation: cc-toast-anim 0.2s cubic-bezier(0.16, 1, 0.3, 1);
-      }
-
-      .cc-toast-success {
-        border-left: 3px solid #10b981;
-      }
-
-      .cc-toast-warning {
-        border-left: 3px solid #f59e0b;
-      }
-
-      .cc-toast-error {
-        border-left: 3px solid #ef4444;
-      }
-
-      @keyframes cc-toast-anim {
-        from {
-          opacity: 0;
-          transform: translateY(10px) scale(0.96);
-        }
-        to {
-          opacity: 1;
-          transform: translateY(0) scale(1);
-        }
-      }
-
-      /* =========================================================
-         CINEMATIC SCREEN POP ANIMATION (WHEN SEALED)
-         ========================================================= */
-      .cc-pop-overlay {
-        position: fixed;
-        inset: 0;
-        width: 100vw;
-        height: 100vh;
-        z-index: 2147483647;
         display: flex;
-        align-items: center;
         justify-content: center;
+      }
+
+      .cc-pill {
         pointer-events: auto;
         cursor: pointer;
-        opacity: 1;
-        transition: opacity 0.28s ease;
-      }
-
-      .cc-pop-overlay.is-leaving {
-        opacity: 0;
-        pointer-events: none;
-      }
-
-      .cc-pop-backdrop {
-        position: absolute;
-        inset: 0;
-        background: radial-gradient(circle at center, rgba(6, 182, 212, 0.18) 0%, rgba(15, 23, 42, 0.88) 55%, rgba(6, 9, 15, 0.95) 100%);
-        backdrop-filter: blur(12px);
-        -webkit-backdrop-filter: blur(12px);
-        animation: cc-pop-bg-in 0.25s ease-out forwards;
-      }
-
-      @keyframes cc-pop-bg-in {
-        from { opacity: 0; }
-        to { opacity: 1; }
-      }
-
-      /* Expanding Shockwave */
-      .cc-pop-shockwave {
-        position: absolute;
-        width: 240px;
-        height: 240px;
-        border-radius: 50%;
-        border: 2px solid rgba(6, 182, 212, 0.8);
-        box-shadow: 0 0 30px rgba(6, 182, 212, 0.6), inset 0 0 20px rgba(245, 158, 11, 0.5);
-        pointer-events: none;
-        animation: cc-shockwave-burst 0.85s cubic-bezier(0.1, 0.9, 0.2, 1) forwards;
-      }
-
-      @keyframes cc-shockwave-burst {
-        0% {
-          transform: scale(0.2);
-          opacity: 1;
-          border-width: 4px;
-        }
-        50% {
-          opacity: 0.8;
-        }
-        100% {
-          transform: scale(2.8);
-          opacity: 0;
-          border-width: 1px;
-        }
-      }
-
-      /* Central Holographic Cyber Card */
-      .cc-pop-card {
-        position: relative;
-        z-index: 2;
-        width: 380px;
-        max-width: 92vw;
-        background: linear-gradient(135deg, rgba(15, 23, 42, 0.94) 0%, rgba(9, 13, 22, 0.98) 100%);
-        border: 1px solid rgba(6, 182, 212, 0.35);
-        border-radius: 20px;
-        padding: 24px 22px 20px;
-        box-shadow:
-          0 0 0 1px rgba(255, 255, 255, 0.08),
-          0 20px 50px rgba(0, 0, 0, 0.7),
-          0 0 40px rgba(6, 182, 212, 0.2);
-        display: flex;
-        flex-direction: column;
-        align-items: center;
-        text-align: center;
-        animation: cc-card-spring 0.5s cubic-bezier(0.175, 0.885, 0.32, 1.275) forwards;
-        overflow: hidden;
-      }
-
-      @keyframes cc-card-spring {
-        0% {
-          opacity: 0;
-          transform: scale(0.55) translateY(30px);
-        }
-        70% {
-          transform: scale(1.04) translateY(-3px);
-        }
-        100% {
-          opacity: 1;
-          transform: scale(1) translateY(0);
-        }
-      }
-
-      .cc-pop-overlay.is-leaving .cc-pop-card {
-        animation: cc-card-leave 0.25s ease forwards;
-      }
-
-      @keyframes cc-card-leave {
-        to {
-          opacity: 0;
-          transform: scale(0.9) translateY(-20px);
-        }
-      }
-
-      .cc-pop-card-glare {
-        position: absolute;
-        top: -60px;
-        left: -60px;
-        width: 160px;
-        height: 160px;
-        border-radius: 50%;
-        background: radial-gradient(circle, rgba(6, 182, 212, 0.25) 0%, transparent 70%);
-        pointer-events: none;
-      }
-
-      .cc-pop-header {
-        display: flex;
-        align-items: center;
-        gap: 8px;
-        font-size: 11px;
-        font-weight: 700;
-        letter-spacing: 0.12em;
-        text-transform: uppercase;
-        color: #94a3b8;
-        margin-bottom: 12px;
-      }
-
-      .cc-pop-pulse-dot {
-        width: 8px;
-        height: 8px;
-        border-radius: 50%;
-        background: #06b6d4;
-        box-shadow: 0 0 10px #06b6d4;
-        animation: cc-pop-pulse 1.2s infinite ease-in-out;
-      }
-
-      @keyframes cc-pop-pulse {
-        0%, 100% { transform: scale(1); opacity: 0.8; }
-        50% { transform: scale(1.4); opacity: 1; }
-      }
-
-      .cc-pop-source {
-        background: rgba(245, 158, 11, 0.15);
-        color: #fbbf24;
-        border: 1px solid rgba(245, 158, 11, 0.3);
-        padding: 2px 7px;
-        border-radius: 999px;
-        font-size: 10px;
-      }
-
-      /* Capsule Stage & Animation */
-      .cc-pop-stage {
-        position: relative;
-        width: 140px;
-        height: 140px;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        margin: 6px 0 14px;
-      }
-
-      .cc-pop-glow-disc {
-        position: absolute;
-        width: 110px;
-        height: 110px;
-        border-radius: 50%;
-        background: radial-gradient(circle, rgba(6, 182, 212, 0.3) 0%, rgba(245, 158, 11, 0.15) 50%, transparent 75%);
-        filter: blur(14px);
-        animation: cc-disc-pulse 1.5s infinite alternate ease-in-out;
-      }
-
-      @keyframes cc-disc-pulse {
-        0% { transform: scale(0.9); opacity: 0.7; }
-        100% { transform: scale(1.15); opacity: 1; }
-      }
-
-      .cc-pop-svg {
-        overflow: visible;
-        filter: drop-shadow(0 8px 16px rgba(0,0,0,0.5));
-      }
-
-      /* Rotating Orbit Rings */
-      .cc-pop-ring-outer {
-        transform-origin: 80px 80px;
-        animation: cc-rotate-cw 12s linear infinite;
-      }
-
-      .cc-pop-ring-inner {
-        transform-origin: 80px 80px;
-        animation: cc-rotate-ccw 8s linear infinite;
-      }
-
-      @keyframes cc-rotate-cw {
-        from { transform: rotate(0deg); }
-        to { transform: rotate(360deg); }
-      }
-
-      @keyframes cc-rotate-ccw {
-        from { transform: rotate(360deg); }
-        to { transform: rotate(0deg); }
-      }
-
-      /* Capsule Snap Action: Halves fly together and slam into place */
-      .cc-pop-half-left {
-        animation: cc-snap-left 0.45s cubic-bezier(0.2, 1.2, 0.3, 1) forwards;
-      }
-
-      .cc-pop-half-right {
-        animation: cc-snap-right 0.45s cubic-bezier(0.2, 1.2, 0.3, 1) forwards;
-      }
-
-      @keyframes cc-snap-left {
-        0% {
-          transform: translate(-30px, 0);
-          opacity: 0.5;
-        }
-        70% {
-          transform: translate(3px, 0);
-          opacity: 1;
-        }
-        100% {
-          transform: translate(0, 0);
-          opacity: 1;
-        }
-      }
-
-      @keyframes cc-snap-right {
-        0% {
-          transform: translate(30px, 0);
-          opacity: 0.5;
-        }
-        70% {
-          transform: translate(-3px, 0);
-          opacity: 1;
-        }
-        100% {
-          transform: translate(0, 0);
-          opacity: 1;
-        }
-      }
-
-      /* Contact Flash Spark */
-      .cc-pop-flash {
-        position: absolute;
-        width: 14px;
-        height: 14px;
-        border-radius: 50%;
-        background: #ffffff;
-        box-shadow: 0 0 24px 10px #ffffff, 0 0 45px 18px #06b6d4, 0 0 60px 24px #f59e0b;
-        pointer-events: none;
-        opacity: 0;
-        animation: cc-flash-burst 0.55s ease-out 0.32s forwards;
-      }
-
-      @keyframes cc-flash-burst {
-        0% {
-          transform: scale(0.2);
-          opacity: 0;
-        }
-        30% {
-          transform: scale(2.4);
-          opacity: 1;
-        }
-        100% {
-          transform: scale(3.5);
-          opacity: 0;
-        }
-      }
-
-      /* Starburst Sparks */
-      .cc-pop-sparks {
-        position: absolute;
-        inset: 0;
-        pointer-events: none;
-      }
-
-      .cc-spark {
-        position: absolute;
-        font-size: 13px;
-        color: #38bdf8;
-        text-shadow: 0 0 8px #06b6d4;
-        opacity: 0;
-        animation: cc-spark-fly 0.65s ease-out 0.34s forwards;
-      }
-
-      .cc-spark.s1 { top: 20%; left: 18%; color: #38bdf8; --tx: -24px; --ty: -20px; }
-      .cc-spark.s2 { top: 18%; right: 18%; color: #fbbf24; --tx: 24px; --ty: -22px; }
-      .cc-spark.s3 { bottom: 22%; left: 22%; color: #22d3ee; --tx: -20px; --ty: 20px; }
-      .cc-spark.s4 { bottom: 20%; right: 20%; color: #f59e0b; --tx: 22px; --ty: 22px; }
-
-      @keyframes cc-spark-fly {
-        0% {
-          transform: translate(0, 0) scale(0.4);
-          opacity: 0;
-        }
-        40% {
-          opacity: 1;
-          transform: translate(calc(var(--tx) * 0.5), calc(var(--ty) * 0.5)) scale(1.3);
-        }
-        100% {
-          opacity: 0;
-          transform: translate(var(--tx), var(--ty)) scale(0.2);
-        }
-      }
-
-      /* Status Badge */
-      .cc-pop-status-badge {
         display: inline-flex;
         align-items: center;
-        gap: 6px;
-        background: rgba(16, 185, 129, 0.15);
-        border: 1px solid rgba(16, 185, 129, 0.4);
-        color: #34d399;
-        font-size: 13px;
-        font-weight: 700;
-        letter-spacing: 0.04em;
-        padding: 5px 14px;
+        gap: 10px;
+        min-height: 44px;
+        max-width: 90vw;
+        padding: 8px 18px;
         border-radius: 999px;
-        margin-bottom: 12px;
-        box-shadow: 0 0 16px rgba(16, 185, 129, 0.25);
-        animation: cc-badge-reveal 0.4s ease-out 0.35s both;
+        background: #111111;
+        color: #ffffff;
+        border: 1px solid rgba(255, 255, 255, 0.12);
+        box-shadow: 0 12px 32px rgba(0, 0, 0, 0.38), 0 2px 6px rgba(0, 0, 0, 0.22);
+        backdrop-filter: blur(16px);
+        -webkit-backdrop-filter: blur(16px);
+        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+        user-select: none;
+        animation: cc-pill-enter 0.38s cubic-bezier(0.34, 1.56, 0.64, 1) forwards;
+        transition: max-width 0.28s cubic-bezier(0.34, 1.56, 0.64, 1),
+                    padding 0.2s ease,
+                    background 0.2s ease,
+                    border-color 0.2s ease;
       }
 
-      @keyframes cc-badge-reveal {
+      .cc-pill.is-leaving {
+        animation: cc-pill-leave 0.2s cubic-bezier(0.16, 1, 0.3, 1) forwards !important;
+        pointer-events: none;
+      }
+
+      .cc-pill.cc-pill-error {
+        border-color: rgba(245, 158, 11, 0.55);
+        animation: cc-pill-enter 0.38s cubic-bezier(0.34, 1.56, 0.64, 1) forwards,
+                   cc-pill-shake 0.42s ease-in-out 0.12s 1;
+      }
+
+      @keyframes cc-pill-enter {
         from {
           opacity: 0;
-          transform: translateY(8px) scale(0.9);
+          transform: translateY(-22px) scale(0.92);
         }
         to {
           opacity: 1;
@@ -1344,103 +1046,189 @@
         }
       }
 
-      /* Stats HUD */
-      .cc-pop-stats {
+      @keyframes cc-pill-leave {
+        from {
+          opacity: 1;
+          transform: translateY(0) scale(1);
+        }
+        to {
+          opacity: 0;
+          transform: translateY(-16px) scale(0.95);
+        }
+      }
+
+      @keyframes cc-pill-shake {
+        0%, 100% { transform: translateX(0); }
+        20%, 60% { transform: translateX(-5px); }
+        40%, 80% { transform: translateX(5px); }
+      }
+
+      /* Pill Light Mode */
+      @media (prefers-color-scheme: light) {
+        .cc-pill {
+          background: #ffffff;
+          color: #111827;
+          border: 1px solid rgba(0, 0, 0, 0.1);
+          box-shadow: 0 12px 30px rgba(0, 0, 0, 0.12), 0 2px 6px rgba(0, 0, 0, 0.06);
+        }
+        .cc-pill.cc-pill-error {
+          border-color: rgba(217, 119, 6, 0.6);
+        }
+        .cc-pill-secondary {
+          color: rgba(0, 0, 0, 0.6) !important;
+        }
+      }
+
+      /* Capsule icon in pill */
+      .cc-pill-icon-wrap {
         display: flex;
         align-items: center;
         justify-content: center;
-        gap: 12px;
-        background: rgba(2, 6, 23, 0.6);
-        border: 1px solid rgba(255, 255, 255, 0.08);
-        border-radius: 10px;
-        padding: 9px 16px;
-        width: 100%;
-        margin-bottom: 12px;
-        animation: cc-stats-reveal 0.4s ease-out 0.4s both;
+        flex-shrink: 0;
+        width: 22px;
+        height: 22px;
       }
 
-      @keyframes cc-stats-reveal {
-        from {
-          opacity: 0;
-          transform: translateY(10px);
-        }
-        to {
-          opacity: 1;
-          transform: translateY(0);
-        }
+      .cc-pill-capsule-svg {
+        display: block;
+        overflow: visible;
       }
 
-      .cc-pop-stat-item {
+      .cc-pill-half {
+        transition: transform 0.35s cubic-bezier(0.34, 1.56, 0.64, 1);
+      }
+
+      .cc-pill-sealing .cc-pill-half-left {
+        transform: translate(-1.5px, 0);
+      }
+
+      .cc-pill-sealing .cc-pill-half-right {
+        transform: translate(1.5px, 0);
+      }
+
+      .cc-pill-sealed .cc-pill-half-left {
+        transform: translate(1.5px, 0);
+      }
+
+      .cc-pill-sealed .cc-pill-half-right {
+        transform: translate(-1.5px, 0);
+      }
+
+      .cc-pill-check-morph {
+        animation: cc-icon-morph 0.32s cubic-bezier(0.34, 1.56, 0.64, 1) forwards;
+      }
+
+      @keyframes cc-icon-morph {
+        0% { transform: scale(0.6); opacity: 0; }
+        70% { transform: scale(1.15); opacity: 1; }
+        100% { transform: scale(1); opacity: 1; }
+      }
+
+      /* Text structure */
+      .cc-pill-content {
         display: flex;
         flex-direction: column;
-        align-items: center;
+        justify-content: center;
+        text-align: left;
+        gap: 1px;
       }
 
-      .cc-pop-stat-val {
-        font-size: 14px;
-        font-weight: 800;
-        color: #f8fafc;
-      }
-
-      .cc-pop-stat-lbl {
-        font-size: 9px;
-        font-weight: 600;
-        text-transform: uppercase;
-        letter-spacing: 0.05em;
-        color: #94a3b8;
-        margin-top: 1px;
-      }
-
-      .cc-pop-stat-sep {
-        color: rgba(255, 255, 255, 0.15);
-        font-size: 16px;
-        font-weight: 300;
-      }
-
-      .cc-pop-footer-tip {
-        font-size: 11px;
-        color: #94a3b8;
+      .cc-pill-row {
         display: flex;
         align-items: center;
         gap: 6px;
-        animation: cc-tip-reveal 0.35s ease-out 0.45s both;
       }
 
-      @keyframes cc-tip-reveal {
-        from { opacity: 0; }
-        to { opacity: 1; }
+      .cc-pill-primary {
+        font-size: 14px;
+        font-weight: 600;
+        line-height: 1.25;
+        white-space: nowrap;
       }
 
-      /* Respect prefers-reduced-motion */
+      .cc-pill-secondary {
+        font-size: 12px;
+        font-weight: 400;
+        color: rgba(255, 255, 255, 0.6);
+        font-feature-settings: "tnum" 1;
+        font-variant-numeric: tabular-nums;
+        white-space: nowrap;
+        line-height: 1.25;
+      }
+
+      /* Copied badge */
+      .cc-pill-copied {
+        font-size: 11px;
+        font-weight: 500;
+        padding: 1px 6px;
+        border-radius: 999px;
+        background: rgba(6, 182, 212, 0.14);
+        color: #06b6d4;
+        animation: cc-fade-in 0.25s ease forwards;
+      }
+
+      @keyframes cc-fade-in {
+        from { opacity: 0; transform: scale(0.9); }
+        to { opacity: 1; transform: scale(1); }
+      }
+
+      /* Undo button */
+      .cc-pill-undo-btn {
+        background: transparent;
+        border: none;
+        color: #06b6d4;
+        font-family: inherit;
+        font-size: 12px;
+        font-weight: 600;
+        cursor: pointer;
+        padding: 2px 6px;
+        margin-left: 4px;
+        text-decoration: underline;
+        text-underline-offset: 2px;
+        border-radius: 4px;
+        transition: opacity 0.15s ease;
+      }
+
+      .cc-pill-undo-btn:hover {
+        opacity: 0.8;
+      }
+
+      /* Reduced motion */
       @media (prefers-reduced-motion: reduce) {
         .cc-launcher,
         .cc-half,
-        .cc-popover,
-        .cc-toast-msg {
+        .cc-popover {
           transition: none !important;
           animation: none !important;
           transform: none !important;
         }
-        .cc-pop-shockwave,
-        .cc-pop-flash,
-        .cc-spark,
-        .cc-pop-glow-disc {
-          display: none !important;
+        .cc-pill {
+          animation: cc-pill-fade 0.15s ease forwards !important;
+          transition: none !important;
         }
-        .cc-pop-ring-outer,
-        .cc-pop-ring-inner {
+        .cc-pill.is-leaving {
+          animation: cc-pill-fade-out 0.15s ease forwards !important;
+        }
+        .cc-pill.cc-pill-error {
+          animation: cc-pill-fade 0.15s ease forwards !important;
+        }
+        .cc-pill-half {
+          transition: none !important;
+        }
+        .cc-pill-check-morph,
+        .cc-pill-copied {
           animation: none !important;
         }
-        .cc-pop-card,
-        .cc-pop-half-left,
-        .cc-pop-half-right,
-        .cc-pop-status-badge,
-        .cc-pop-stats,
-        .cc-pop-footer-tip {
-          animation: none !important;
-          transform: none !important;
-          opacity: 1 !important;
-        }
+      }
+
+      @keyframes cc-pill-fade {
+        from { opacity: 0; }
+        to { opacity: 1; }
+      }
+
+      @keyframes cc-pill-fade-out {
+        from { opacity: 1; }
+        to { opacity: 0; }
       }
     `;
 
@@ -1490,8 +1278,8 @@
         </div>
       </div>
 
-      <!-- Toast Container -->
-      <div class="cc-toast-box" id="cc-toast-box"></div>
+      <!-- Non-blocking Dynamic Capsule Pill Container -->
+      <div class="cc-pill-host" id="cc-pill-host"></div>
     `;
 
     shadowRoot.appendChild(wrapper);
@@ -1500,162 +1288,175 @@
     refreshRecentCapsules();
   }
 
-  function showToast(message, type = 'info', duration = 4500) {
-    if (!shadowRoot) return;
-    const box = shadowRoot.getElementById('cc-toast-box');
-    if (!box) return;
-
-    const toast = document.createElement('div');
-    toast.className = `cc-toast-msg cc-toast-${type}`;
-    toast.textContent = message;
-
-    box.appendChild(toast);
-
-    setTimeout(() => {
-      toast.style.opacity = '0';
-      toast.style.transform = 'translateY(8px)';
-      toast.style.transition = 'opacity 0.25s ease, transform 0.25s ease';
-      setTimeout(() => toast.remove(), 250);
-    }, duration);
-  }
+  /* ==========================================================================
+     NON-BLOCKING DYNAMIC CAPSULE PILL CONTROLLER
+     ========================================================================== */
+  let activePillTimeout = null;
+  let pillTimerStartedAt = 0;
+  let pillTimerRemaining = 3500;
 
   /**
-   * Plays the cinematic full-screen pop animation when sealing a chat.
-   * Features glowing shockwave, snap-together capsule halves, sparks, and stats.
+   * Displays or updates the non-blocking dynamic capsule pill notification.
+   * Replaces existing pill smoothly without stacking.
+   * @param {Object} options
+   * @param {'sealing'|'success'|'error'|'info'} options.state
+   * @param {string} options.title
+   * @param {string} [options.detail]
+   * @param {Function} [options.onUndo]
+   * @param {boolean} [options.copied]
    */
-  function playSealPopAnimation(info) {
+  function showPill({ state = 'info', title = '', detail = '', onUndo = null, copied = false }) {
     if (!shadowRoot) return;
 
-    // Remove any existing pop overlay
-    const existing = shadowRoot.getElementById('cc-pop-overlay');
-    if (existing) existing.remove();
+    let host = shadowRoot.getElementById('cc-pill-host');
+    if (!host) {
+      host = document.createElement('div');
+      host.id = 'cc-pill-host';
+      host.className = 'cc-pill-host';
+      shadowRoot.appendChild(host);
+    }
 
-    const overlay = document.createElement('div');
-    overlay.className = 'cc-pop-overlay';
-    overlay.id = 'cc-pop-overlay';
-    overlay.setAttribute('role', 'alert');
-    overlay.setAttribute('aria-live', 'assertive');
+    // Clear any active timer
+    if (activePillTimeout) {
+      clearTimeout(activePillTimeout);
+      activePillTimeout = null;
+    }
 
-    const sourceName = escapeHtml(info.source || 'AI Chat');
-    const count = info.count || 0;
-    const tokens = info.tokens || '0';
-    const mode = (info.mode || 'compact').toUpperCase();
+    let pill = host.querySelector('.cc-pill');
 
-    overlay.innerHTML = `
-      <div class="cc-pop-backdrop"></div>
-      <div class="cc-pop-shockwave"></div>
+    if (!pill) {
+      pill = document.createElement('div');
+      pill.setAttribute('role', 'status');
+      pill.setAttribute('aria-live', 'polite');
+      host.appendChild(pill);
+    }
 
-      <div class="cc-pop-card">
-        <div class="cc-pop-card-glare"></div>
+    // Apply state classes
+    pill.className = `cc-pill cc-pill-${state}`;
+    if (state === 'sealing') {
+      pill.classList.add('cc-pill-sealing');
+    } else if (state === 'success' && title.toLowerCase().includes('sealed')) {
+      pill.classList.add('cc-pill-sealed');
+    }
 
-        <div class="cc-pop-header">
-          <span class="cc-pop-pulse-dot"></span>
-          <span class="cc-pop-protocol">CHAT CAPSULE PROTOCOL</span>
-          <span class="cc-pop-source">${sourceName}</span>
+    // Clean inline SVG icons
+    let iconSvg = '';
+    if (state === 'sealing') {
+      iconSvg = `
+        <svg class="cc-pill-capsule-svg" viewBox="0 0 24 24" width="20" height="20" aria-hidden="true">
+          <g transform="rotate(-45 12 12)">
+            <path class="cc-pill-half cc-pill-half-left" d="M 5 9 A 3 3 0 0 0 5 15 L 10.5 15 L 10.5 9 Z" fill="#06b6d4" />
+            <path class="cc-pill-half cc-pill-half-right" d="M 13.5 9 L 13.5 15 L 19 15 A 3 3 0 0 0 19 9 Z" fill="#f59e0b" />
+          </g>
+        </svg>`;
+    } else if (state === 'success') {
+      iconSvg = `
+        <svg class="cc-pill-check-morph" viewBox="0 0 20 20" width="18" height="18" fill="none" stroke="#06b6d4" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <polyline points="4 10 8 14 16 6"></polyline>
+        </svg>`;
+    } else if (state === 'error') {
+      iconSvg = `
+        <svg viewBox="0 0 20 20" width="18" height="18" fill="none" stroke="#f59e0b" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <circle cx="10" cy="10" r="8"></circle>
+          <line x1="10" y1="6" x2="10" y2="10"></line>
+          <line x1="10" y1="14" x2="10.01" y2="14"></line>
+        </svg>`;
+    } else {
+      iconSvg = `
+        <svg viewBox="0 0 20 20" width="18" height="18" fill="none" stroke="#06b6d4" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <circle cx="10" cy="10" r="8"></circle>
+          <line x1="10" y1="10" x2="10" y2="14"></line>
+          <line x1="10" y1="6" x2="10.01" y2="6"></line>
+        </svg>`;
+    }
+
+    const detailHtml = detail ? `<span class="cc-pill-secondary">${escapeHtml(detail)}</span>` : '';
+    const copiedHtml = copied ? `<span class="cc-pill-copied">Copied</span>` : '';
+    const undoHtml = onUndo ? `<button type="button" class="cc-pill-undo-btn" id="cc-pill-undo">Undo</button>` : '';
+
+    pill.innerHTML = `
+      <div class="cc-pill-icon-wrap">${iconSvg}</div>
+      <div class="cc-pill-content">
+        <div class="cc-pill-row">
+          <span class="cc-pill-primary">${escapeHtml(title)}</span>
+          ${copiedHtml}
+          ${undoHtml}
         </div>
-
-        <div class="cc-pop-stage">
-          <div class="cc-pop-glow-disc"></div>
-          <div class="cc-pop-flash"></div>
-
-          <svg class="cc-pop-svg" viewBox="0 0 160 160" width="130" height="130" aria-hidden="true">
-            <defs>
-              <linearGradient id="ccPopCyan" x1="0%" y1="0%" x2="100%" y2="100%">
-                <stop offset="0%" stop-color="#22d3ee" />
-                <stop offset="100%" stop-color="#0891b2" />
-              </linearGradient>
-              <linearGradient id="ccPopAmber" x1="0%" y1="0%" x2="100%" y2="100%">
-                <stop offset="0%" stop-color="#fbbf24" />
-                <stop offset="100%" stop-color="#d97706" />
-              </linearGradient>
-              <filter id="ccPopGlow" x="-20%" y="-20%" width="140%" height="140%">
-                <feDropShadow dx="0" dy="2" stdDeviation="3" flood-color="#06b6d4" flood-opacity="0.4"/>
-              </filter>
-            </defs>
-
-            <!-- Orbital tech rings -->
-            <circle class="cc-pop-ring-outer" cx="80" cy="80" r="66" fill="none" stroke="rgba(6, 182, 212, 0.4)" stroke-width="1.5" stroke-dasharray="8 6" />
-            <circle class="cc-pop-ring-inner" cx="80" cy="80" r="54" fill="none" stroke="rgba(245, 158, 11, 0.45)" stroke-width="1.5" stroke-dasharray="12 8" />
-
-            <!-- Tilted capsule (45 deg) -->
-            <g transform="rotate(-45 80 80)">
-              <!-- Left Half (Cyan) -->
-              <g class="cc-pop-half cc-pop-half-left">
-                <path d="M 34 64 A 16 16 0 0 0 34 96 L 76 96 L 76 64 Z" fill="url(#ccPopCyan)" filter="url(#ccPopGlow)" />
-                <path d="M 40 68 A 12 12 0 0 0 40 92 L 44 92 A 8 8 0 0 1 44 68 Z" fill="rgba(255,255,255,0.4)" />
-                <line x1="76" y1="64" x2="76" y2="96" stroke="#cffafe" stroke-width="1.5" />
-              </g>
-
-              <!-- Right Half (Amber) -->
-              <g class="cc-pop-half cc-pop-half-right">
-                <path d="M 84 64 L 84 96 L 126 96 A 16 16 0 0 0 126 64 Z" fill="url(#ccPopAmber)" />
-                <path d="M 120 68 A 12 12 0 0 1 120 92 L 116 92 A 8 8 0 0 0 116 68 Z" fill="rgba(255,255,255,0.4)" />
-                <line x1="84" y1="64" x2="84" y2="96" stroke="#fef3c7" stroke-width="1.5" />
-              </g>
-            </g>
-          </svg>
-
-          <!-- Particle sparks -->
-          <div class="cc-pop-sparks">
-            <span class="cc-spark s1">✦</span>
-            <span class="cc-spark s2">✦</span>
-            <span class="cc-spark s3">✦</span>
-            <span class="cc-spark s4">✦</span>
-          </div>
-        </div>
-
-        <div class="cc-pop-status-badge">
-          <svg viewBox="0 0 20 20" width="14" height="14" fill="currentColor">
-            <path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clip-rule="evenodd" />
-          </svg>
-          <span>CAPSULE SEALED &amp; LOCKED</span>
-        </div>
-
-        <div class="cc-pop-stats">
-          <div class="cc-pop-stat-item">
-            <span class="cc-pop-stat-val">${count}</span>
-            <span class="cc-pop-stat-lbl">Messages</span>
-          </div>
-          <div class="cc-pop-stat-sep">/</div>
-          <div class="cc-pop-stat-item">
-            <span class="cc-pop-stat-val">~${tokens}</span>
-            <span class="cc-pop-stat-lbl">Tokens</span>
-          </div>
-          <div class="cc-pop-stat-sep">/</div>
-          <div class="cc-pop-stat-item">
-            <span class="cc-pop-stat-val">${mode}</span>
-            <span class="cc-pop-stat-lbl">Mode</span>
-          </div>
-        </div>
-
-        <div class="cc-pop-footer-tip">
-          <span>📋</span> Prompt auto-copied to clipboard • Click anywhere to dismiss
-        </div>
+        ${detailHtml}
       </div>
     `;
 
-    shadowRoot.appendChild(overlay);
-
-    let dismissed = false;
+    // Dismissal with smooth slide-up and fade-out
     const dismiss = () => {
-      if (dismissed) return;
-      dismissed = true;
-      overlay.classList.add('is-leaving');
-      setTimeout(() => overlay.remove(), 280);
-      document.removeEventListener('keydown', handleKey);
-    };
-
-    const handleKey = (e) => {
-      if (e.key === 'Escape' || e.key === 'Enter' || e.key === ' ') {
-        dismiss();
+      if (activePillTimeout) {
+        clearTimeout(activePillTimeout);
+        activePillTimeout = null;
+      }
+      if (pill && !pill.classList.contains('is-leaving')) {
+        pill.classList.add('is-leaving');
+        setTimeout(() => {
+          if (pill.parentElement) pill.remove();
+        }, 220);
       }
     };
 
-    overlay.addEventListener('click', dismiss);
-    document.addEventListener('keydown', handleKey);
+    // Auto-dismiss after 3.5s (except during sealing progress)
+    pillTimerRemaining = 3500;
+    pillTimerStartedAt = Date.now();
 
-    // Auto-dismiss after 2.3 seconds
-    setTimeout(dismiss, 2300);
+    const startTimer = (duration) => {
+      if (state === 'sealing') return;
+      activePillTimeout = setTimeout(dismiss, duration);
+    };
+
+    startTimer(pillTimerRemaining);
+
+    // Hovering pauses the timer
+    pill.onmouseenter = () => {
+      if (activePillTimeout) {
+        clearTimeout(activePillTimeout);
+        activePillTimeout = null;
+        pillTimerRemaining -= Date.now() - pillTimerStartedAt;
+        if (pillTimerRemaining < 1000) pillTimerRemaining = 1500;
+      }
+    };
+
+    pill.onmouseleave = () => {
+      if (state !== 'sealing') {
+        pillTimerStartedAt = Date.now();
+        startTimer(pillTimerRemaining);
+      }
+    };
+
+    // Clicking the pill dismisses immediately
+    pill.onclick = (e) => {
+      if (e.target && e.target.closest('#cc-pill-undo')) return;
+      dismiss();
+    };
+
+    // Escape key dismisses immediately
+    const onKeyDown = (e) => {
+      if (e.key === 'Escape') {
+        dismiss();
+        document.removeEventListener('keydown', onKeyDown);
+      }
+    };
+    document.addEventListener('keydown', onKeyDown);
+
+    // Undo button handler
+    if (onUndo) {
+      const undoBtn = pill.querySelector('#cc-pill-undo');
+      if (undoBtn) {
+        undoBtn.onclick = async (e) => {
+          e.stopPropagation();
+          try {
+            await onUndo();
+          } catch (err) {
+            console.error('[Chat Capsule] Undo failed:', err);
+          }
+        };
+      }
+    }
   }
 
   async function refreshRecentCapsules() {
@@ -1805,9 +1606,9 @@
         await sealCurrentChat();
       } catch (err) {
         if (err?.message?.includes('invalidated') || (typeof chrome !== 'undefined' && !chrome.runtime?.id)) {
-          showToast('Extension was reloaded. Please refresh this page (F5) to reconnect.', 'warning', 6000);
+          showPill({ state: 'error', title: 'Extension reloaded', detail: 'Please refresh this page (F5) to reconnect.' });
         } else {
-          showToast('Error sealing chat: ' + (err?.message || err), 'error', 5000);
+          showPill({ state: 'error', title: 'Error sealing chat', detail: err?.message || String(err) });
         }
       } finally {
         setTimeout(() => {
