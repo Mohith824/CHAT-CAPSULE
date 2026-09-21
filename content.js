@@ -567,7 +567,15 @@
       url: window.location.href,
     });
 
-    await window.CapsuleLib.store.save(capsule);
+    try {
+      await window.CapsuleLib.store.save(capsule);
+    } catch (saveErr) {
+      if (saveErr?.message?.includes('invalidated') || (typeof chrome !== 'undefined' && !chrome.runtime?.id)) {
+        showToast('Extension was reloaded. Please refresh this page (F5) to seal.', 'warning', 6000);
+        return null;
+      }
+      throw saveErr;
+    }
 
     const mode = await getPreferredMode();
     const prompt = window.CapsuleLib.toPrompt(capsule, mode);
@@ -1795,6 +1803,12 @@
 
       try {
         await sealCurrentChat();
+      } catch (err) {
+        if (err?.message?.includes('invalidated') || (typeof chrome !== 'undefined' && !chrome.runtime?.id)) {
+          showToast('Extension was reloaded. Please refresh this page (F5) to reconnect.', 'warning', 6000);
+        } else {
+          showToast('Error sealing chat: ' + (err?.message || err), 'error', 5000);
+        }
       } finally {
         setTimeout(() => {
           launcher.classList.remove('is-sealing');
