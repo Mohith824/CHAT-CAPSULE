@@ -1,0 +1,141 @@
+﻿<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>3D Capsule Pill Animation</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      background-color: #000000;
+      color: #ffffff;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      height: 100vh;
+      width: 100vw;
+      overflow: hidden;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+    .viewport-frame {
+      position: relative;
+      width: 100vw;
+      height: 100vh;
+      background: #000000;
+      overflow: hidden;
+    }
+    .capsule-pill {
+      position: absolute;
+      right: 60px;
+      bottom: 60px;
+      width: 320px;
+      height: 320px;
+      user-select: none;
+      pointer-events: none;
+      will-change: transform;
+      animation: capsulePopSequence 3s cubic-bezier(0.25, 1, 0.5, 1) infinite;
+    }
+    .capsule-pill img {
+      width: 100%;
+      height: 100%;
+      object-fit: contain;
+      display: block;
+      filter: drop-shadow(0 20px 40px rgba(0, 0, 0, 0.8));
+    }
+    @keyframes capsulePopSequence {
+      0% {
+        transform: translate(380px, 380px);
+        opacity: 0;
+      }
+      3% {
+        opacity: 1;
+      }
+      18% {
+        transform: translate(-18px, -18px);
+      }
+      25% {
+        transform: translate(0, 0);
+      }
+      75% {
+        transform: translate(0, 0);
+        opacity: 1;
+      }
+      97% {
+        opacity: 1;
+      }
+      100% {
+        transform: translate(380px, 380px);
+        opacity: 0;
+      }
+    }
+    .controls-panel {
+      position: fixed;
+      top: 20px;
+      left: 50%;
+      transform: translateX(-50%);
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      background: rgba(20, 20, 20, 0.75);
+      backdrop-filter: blur(12px);
+      -webkit-backdrop-filter: blur(12px);
+      border: 1px solid rgba(255, 255, 255, 0.15);
+      border-radius: 999px;
+      padding: 6px 16px;
+      z-index: 100;
+      opacity: 0.25;
+      transition: opacity 0.2s ease;
+    }
+    .controls-panel:hover { opacity: 1; }
+    .btn {
+      background: rgba(255, 255, 255, 0.1);
+      border: 1px solid rgba(255, 255, 255, 0.2);
+      color: #ffffff;
+      padding: 5px 12px;
+      border-radius: 999px;
+      font-size: 12px;
+      font-weight: 500;
+      cursor: pointer;
+      transition: background 0.15s ease;
+    }
+    .btn:hover { background: rgba(255, 255, 255, 0.25); }
+    .status-tag { font-size: 11px; color: #94a3b8; }
+  </style>
+</head>
+<body>
+  <div class="controls-panel">
+    <span class="status-tag">3.0s Animation</span>
+    <button class="btn" id="replayBtn">Replay</button>
+    <button class="btn" id="toggleBtn">Pause</button>
+  </div>
+  <div class="viewport-frame">
+    <div class="capsule-pill" id="capsuleElement">
+      <img src="capsule_transparent.png" alt="3D Two-tone Capsule Pill" />
+    </div>
+  </div>
+  <script>
+    const capsule = document.getElementById('capsuleElement');
+    const replayBtn = document.getElementById('replayBtn');
+    const toggleBtn = document.getElementById('toggleBtn');
+    let isPlaying = true;
+    replayBtn.addEventListener('click', () => {
+      capsule.style.animation = 'none';
+      void capsule.offsetWidth;
+      capsule.style.animation = 'capsulePopSequence 3s cubic-bezier(0.25, 1, 0.5, 1) infinite';
+      capsule.style.animationPlayState = 'running';
+      isPlaying = true;
+      toggleBtn.textContent = 'Pause';
+    });
+    toggleBtn.addEventListener('click', () => {
+      if (isPlaying) {
+        capsule.style.animationPlayState = 'paused';
+        toggleBtn.textContent = 'Play';
+      } else {
+        capsule.style.animationPlayState = 'running';
+        toggleBtn.textContent = 'Pause';
+      }
+      isPlaying = !isPlaying;
+    });
+  </script>
+</body>
+</html>
