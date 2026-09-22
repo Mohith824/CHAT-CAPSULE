@@ -521,43 +521,64 @@
   }
 
   /**
+   * Helper to check if the extension runtime context is currently active.
+   */
+  function isExtensionValid() {
+    try {
+      return Boolean(typeof chrome !== 'undefined' && chrome?.runtime?.id && chrome.storage?.local);
+    } catch {
+      return false;
+    }
+  }
+
+  /**
+   * Helper to determine if an error was caused by extension reload or context invalidation.
+   */
+  function isInvalidatedError(err) {
+    if (!isExtensionValid()) return true;
+    const str = String(err?.message || err || '').toLowerCase();
+    return (
+      str.includes('context invalidated') ||
+      str.includes('context_invalidated') ||
+      str.includes('extension context') ||
+      str.includes('not available') ||
+      str.includes('reloaded')
+    );
+  }
+
+  /**
    * Storage helpers using chrome.storage.local
    */
   const store = {
     async list() {
       try {
-        if (typeof chrome === 'undefined' || !chrome.runtime?.id || !chrome.storage?.local) {
-          return [];
-        }
+        if (!isExtensionValid()) return [];
         const res = await chrome.storage.local.get(['capsules']);
         return Array.isArray(res.capsules) ? res.capsules : [];
       } catch (err) {
-        if (err?.message?.includes('Extension context invalidated')) {
-          return [];
-        }
-        console.error('[CapsuleLib.store.list] Error:', err);
+        if (isInvalidatedError(err)) return [];
+        console.warn('[CapsuleLib.store.list] Warning:', err?.message || err);
         return [];
       }
     },
 
     async get(id) {
       try {
+        if (!isExtensionValid()) return null;
         const capsules = await this.list();
         return capsules.find((c) => c.id === id) || null;
       } catch (err) {
-        if (err?.message?.includes('Extension context invalidated')) {
-          return null;
-        }
-        console.error('[CapsuleLib.store.get] Error:', err);
+        if (isInvalidatedError(err)) return null;
+        console.warn('[CapsuleLib.store.get] Warning:', err?.message || err);
         return null;
       }
     },
 
     async save(capsule) {
+      if (!isExtensionValid()) {
+        throw new Error('Extension was reloaded. Please refresh the page (F5) to seal.');
+      }
       try {
-        if (typeof chrome === 'undefined' || !chrome.runtime?.id || !chrome.storage?.local) {
-          throw new Error('chrome.storage.local is not available');
-        }
         const capsules = await this.list();
         const index = capsules.findIndex((c) => c.id === capsule.id);
         if (index >= 0) {
@@ -565,31 +586,31 @@
         } else {
           capsules.unshift(capsule);
         }
+        // Cap list at 50 capsules to avoid storage overflow
+        if (capsules.length > 50) {
+          capsules.length = 50;
+        }
         await chrome.storage.local.set({ capsules });
         return capsule;
       } catch (err) {
-        if (err?.message?.includes('Extension context invalidated')) {
-          throw new Error('Extension was reloaded. Please refresh the page to reconnect.');
+        if (isInvalidatedError(err)) {
+          throw new Error('Extension was reloaded. Please refresh the page (F5) to seal.');
         }
-        console.error('[CapsuleLib.store.save] Error:', err);
+        console.warn('[CapsuleLib.store.save] Warning:', err?.message || err);
         throw err;
       }
     },
 
     async remove(id) {
       try {
-        if (typeof chrome === 'undefined' || !chrome.runtime?.id || !chrome.storage?.local) {
-          return false;
-        }
+        if (!isExtensionValid()) return false;
         const capsules = await this.list();
         const filtered = capsules.filter((c) => c.id !== id);
         await chrome.storage.local.set({ capsules: filtered });
         return true;
       } catch (err) {
-        if (err?.message?.includes('Extension context invalidated')) {
-          return false;
-        }
-        console.error('[CapsuleLib.store.remove] Error:', err);
+        if (isInvalidatedError(err)) return false;
+        console.warn('[CapsuleLib.store.remove] Warning:', err?.message || err);
         return false;
       }
     },
@@ -601,6 +622,8 @@
     toMarkdown,
     domToMarkdown,
     approxTokens,
+    isExtensionValid,
+    isInvalidatedError,
     store,
   };
 

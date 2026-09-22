@@ -43,7 +43,7 @@
       // 5. Setup UI listeners
       bindUIEvents();
     } catch (err) {
-      console.error('[Popup] Initialization error:', err);
+      console.warn('[Popup] Initialization note:', err?.message || err);
       showToast('Error loading popup: ' + err.message, 'error');
     }
   }
@@ -131,7 +131,7 @@
       }
       renderCapsules();
     } catch (err) {
-      console.error('[Popup] Failed to fetch capsules:', err);
+      console.warn('[Popup] Could not fetch capsules:', err?.message || err);
       showToast('Could not load capsules from storage.', 'error');
     }
   }
@@ -451,7 +451,7 @@
         await window.CapsuleLib.store.save(parsed);
         showToast(`Imported: "${parsed.title.slice(0, 28)}..."`, 'success');
       } catch (err) {
-        console.error('[Popup] Import error:', err);
+        console.warn('[Popup] Import warning:', err?.message || err);
         showToast(err.message || 'Failed to import JSON.', 'error', 4500);
       } finally {
         importFileInput.value = '';

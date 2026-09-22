@@ -536,7 +536,7 @@
       document.body.removeChild(ta);
       return success;
     } catch (e2) {
-      console.error('[Chat Capsule] execCommand fallback failed:', e2);
+      console.warn('[Chat Capsule] execCommand fallback failed:', e2?.message || e2);
       return false;
     }
   }
@@ -590,7 +590,14 @@
     try {
       await window.CapsuleLib.store.save(capsule);
     } catch (saveErr) {
-      if (saveErr?.message?.includes('invalidated') || (typeof chrome !== 'undefined' && !chrome.runtime?.id)) {
+      const isReloaded =
+        (typeof window !== 'undefined' && window.CapsuleLib?.isInvalidatedError?.(saveErr)) ||
+        saveErr?.message?.toLowerCase().includes('reloaded') ||
+        saveErr?.message?.toLowerCase().includes('invalidated') ||
+        saveErr?.message?.toLowerCase().includes('not available') ||
+        (typeof chrome !== 'undefined' && !chrome.runtime?.id);
+
+      if (isReloaded) {
         showPill({
           state: 'error',
           title: 'Extension reloaded',
@@ -598,7 +605,13 @@
         });
         return null;
       }
-      throw saveErr;
+
+      showPill({
+        state: 'error',
+        title: 'Save failed',
+        detail: saveErr?.message || 'Could not save to local storage.',
+      });
+      return null;
     }
 
     const mode = await getPreferredMode();
@@ -1452,7 +1465,7 @@
           try {
             await onUndo();
           } catch (err) {
-            console.error('[Chat Capsule] Undo failed:', err);
+            console.warn('[Chat Capsule] Undo warning:', err?.message || err);
           }
         };
       }
@@ -1512,7 +1525,8 @@
         listEl.appendChild(item);
       });
     } catch (e) {
-      console.error('[Chat Capsule] Failed to load recent capsules:', e);
+      if (typeof window !== 'undefined' && window.CapsuleLib?.isInvalidatedError?.(e)) return;
+      console.warn('[Chat Capsule] Note: Failed to load recent capsules:', e?.message || e);
     }
   }
 
@@ -1605,7 +1619,14 @@
       try {
         await sealCurrentChat();
       } catch (err) {
-        if (err?.message?.includes('invalidated') || (typeof chrome !== 'undefined' && !chrome.runtime?.id)) {
+        const isReloaded =
+          (typeof window !== 'undefined' && window.CapsuleLib?.isInvalidatedError?.(err)) ||
+          err?.message?.toLowerCase().includes('reloaded') ||
+          err?.message?.toLowerCase().includes('invalidated') ||
+          err?.message?.toLowerCase().includes('not available') ||
+          (typeof chrome !== 'undefined' && !chrome.runtime?.id);
+
+        if (isReloaded) {
           showPill({ state: 'error', title: 'Extension reloaded', detail: 'Please refresh this page (F5) to reconnect.' });
         } else {
           showPill({ state: 'error', title: 'Error sealing chat', detail: err?.message || String(err) });
